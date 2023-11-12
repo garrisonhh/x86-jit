@@ -7,6 +7,8 @@ pub fn build(b: *std.Build) void {
 
     const optimize = b.standardOptimizeOption(.{});
 
+    const common = b.dependency("zighh", .{}).module("common");
+
     const exe = b.addExecutable(.{
         .name = "forthlike-x86-jit",
         .root_source_file = .{ .path = "src/main.zig" },
@@ -14,6 +16,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    exe.addModule("common", common);
     b.installArtifact(exe);
 
     // run
@@ -31,8 +34,9 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const run_unit_tests = b.addRunArtifact(unit_tests);
+    unit_tests.addModule("common", common);
 
+    const run_unit_tests = b.addRunArtifact(unit_tests);
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
 }

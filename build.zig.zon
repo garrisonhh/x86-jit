@@ -1,0 +1,10 @@
+.{
+    .name = "forthlike",
+    .version = "0.0.0",
+    .dependencies = .{
+        .zighh = .{
+            .url = "https://github.com/garrisonhh/zighh/tarball/51b61ad07964f8c74a62dbb6c3d341ac74dc3417",
+            .hash = "122085a8f99dd1a61a7eb373c40d3fa7fd7f6b0a69fb94adc51f21888ff152f27a81",
+        },
+    },
+}
