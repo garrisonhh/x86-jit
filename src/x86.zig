@@ -181,10 +181,20 @@ pub const RRmIOArg = union(enum) {
 
 pub const Op = union(enum) {
     const Self = @This();
+    pub const Tag = std.meta.Tag(Self);
 
     pub const Mov = struct {
         src: RRmIOArg,
         dst: RRmIOArg,
+    };
+
+    pub const BinMath = struct {
+        src: RRmIArg,
+        dst: RRmArg,
+    };
+
+    pub const Call = struct {
+        reg: Register,
     };
 
     nop,
@@ -194,7 +204,11 @@ pub const Op = union(enum) {
     push: RRmIArg,
     pop: RRmArg,
 
+    call: Call,
     mov: Mov,
+
+    add: BinMath,
+    sub: BinMath,
 
     pub const EncodingError = error { InvalidOp };
     const invalidOp = EncodingError.InvalidOp;
@@ -245,6 +259,34 @@ pub const Op = union(enum) {
                     else => @panic("TODO"),
                 },
                 else => @panic("TODO"),
+            },
+            .call => |call| Encoded{
+                .opcode = &.{0xFF},
+                .modrm = ModRm{
+                    .mod = 0b11,
+                    .reg_opcode = 2,
+                    .rm = @intFromEnum(call.reg),
+                },
+            },
+
+            inline .add, .sub => |bin, op| switch (bin.dst) {
+                .reg => |reg| switch (bin.src) {
+                    .reg => |src_reg| Encoded{
+                        .prefix = Prefix.REX_W,
+                        .opcode = switch (op) {
+                            .add => &.{0x03},
+                            .sub => &.{0x2B},
+                            else => unreachable,
+                        },
+                        .modrm = ModRm{
+                            .mod = 0b11,
+                            .reg_opcode = @intFromEnum(reg),
+                            .rm = @intFromEnum(src_reg),
+                        },
+                    },
+                    else => @panic("TODO"),
+                },
+                .deref => @panic("TODO"),
             },
         };
     }

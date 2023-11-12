@@ -8,11 +8,12 @@ pub fn main() !void {
     const ally = gpa.allocator();
 
     const program =
-        \\1 2 + .
+        \\3 5 4 debug - debug + debug
     ;
 
     const compiled = try compile(ally, program);
     defer compiled.deinit(ally);
 
-    compiled.func()();
+    const func = compiled.func();
+    func();
 }
