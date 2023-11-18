@@ -1,19 +1,11 @@
-const std = @import("std");
-const compilation = @import("compile.zig");
-const compile = compilation.compile;
+//! module for x86-jit
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const ally = gpa.allocator();
+const builtin = @import("builtin");
 
-    const program =
-        \\3 5 4 debug - debug + debug
-    ;
-
-    const compiled = try compile(ally, program);
-    defer compiled.deinit(ally);
-
-    const func = compiled.func();
-    func();
+comptime {
+    if (builtin.target.cpu.arch != .x86_64) {
+        @compileError("x86-jit is only usable on the x86_64 architecture");
+    }
 }
+
+pub const Jit = @import("Jit.zig");

@@ -1,5 +1,5 @@
 .{
-    .name = "forthlike",
+    .name = "x86-jit",
     .version = "0.0.0",
     .dependencies = .{
         .zighh = .{
