@@ -16,23 +16,46 @@ pub fn main() !void {
     const fun_builder = try builder.block();
     const fun_label = fun_builder.label;
 
-    try fun_builder.op(.{ .enter = 16 });
-    try fun_builder.op(.{ .mov = .{ .src = .rdi, .dst = .rax } });
-    try fun_builder.op(.{ .add = .{ .src = .rsi, .dst = .rax } });
+    const base_case = try builder.block();
+
+    try fun_builder.op(.{ .enter = 0 });
     try fun_builder.op(.{
-        .constant = .{ .bytes = std.mem.asBytes(&@as(u64, 420)), .dst = .rsi },
+        .constant = .{
+            .bytes = std.mem.asBytes(&@as(u64, 1)),
+            .dst = .rbx,
+        }
     });
-    try fun_builder.op(.{ .add = .{ .src = .rsi, .dst = .rax } });
+
+    // if n <= 1 then do recursive call, otherwise return 1 (base case)
+    try fun_builder.op(.{ .cmp = .{ .lhs = .rdi, .rhs = .rbx } });
+    try fun_builder.op(.{
+        .jump_if = .{ .cond = .le, .label = base_case.label },
+    });
+
+    // return fib(n - 1) + fib(n - 2)
+    try fun_builder.op(.{ .sub = .{ .src = .rbx, .dst = .rdi } });
+    try fun_builder.op(.{ .push = .rdi });
+    try fun_builder.op(.{ .call = fun_builder.label });
+    try fun_builder.op(.{ .pop = .rdi });
+    try fun_builder.op(.{ .push = .rax });
+    try fun_builder.op(.{ .sub = .{ .src = .rbx, .dst = .rdi } });
+    try fun_builder.op(.{ .call = fun_builder.label });
+    try fun_builder.op(.{ .pop = .rdx });
+    try fun_builder.op(.{ .add = .{ .src = .rdx, .dst = .rax } });
     try fun_builder.op(.leave);
     try fun_builder.op(.ret);
+
+    // return 1
+    try base_case.op(.{ .mov = .{ .src = .rbx, .dst = .rax } });
+    try base_case.op(.leave);
+    try base_case.op(.ret);
 
     try builder.build();
 
     // run function
-    const fun = jit.get(fun_label, fn(i64, i64) callconv(.SysV) i64);
-    const a = 123;
-    const b = 456;
-    const res = fun(a, b);
+    const fib = jit.get(fun_label, fn(u64) callconv(.SysV) u64);
 
-    std.debug.print("fun({}, {}) = {}\n", .{a, b, res});
+    for (0..20) |n| {
+        std.debug.print("fib({}) = {}\n", .{n, fib(n)});
+    }
 }

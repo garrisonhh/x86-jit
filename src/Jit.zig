@@ -26,6 +26,39 @@ pub const Op = union(enum) {
         dst: Register,
     };
 
+    pub const Cmp = struct {
+        lhs: Register,
+        rhs: Register,
+    };
+
+    /// numbers are associated with Jcc instruction opcodes, you can use these
+    /// in the opcode_reg encoded field with 0x70 opcode for short jump and
+    /// 0x0F80 opcode for long jump
+    pub const Condition = enum(u4) {
+        z = 0x4,
+        nz = 0x5,
+        gt = 0xF,
+        lt = 0xC,
+        ge = 0xD,
+        le = 0xE,
+
+        fn inverse(cond: Condition) Condition {
+            return switch (cond) {
+                .z => .nz,
+                .nz => .z,
+                .gt => .le,
+                .lt => .ge,
+                .le => .gt,
+                .ge => .lt,
+            };
+        }
+    };
+
+    pub const JumpIf = struct {
+        cond: Condition,
+        label: Label,
+    };
+
     nop,
 
     // control flow
@@ -35,7 +68,14 @@ pub const Op = union(enum) {
     leave,
     ret,
     syscall,
+    /// clobbers rax
     call: Label,
+    /// clobbers rax
+    jump: Label,
+    /// sets flags
+    cmp: Cmp,
+    /// uses flags set by cmp to determine whether to jump
+    jump_if: JumpIf,
 
     // value twiddling
     constant: Constant,
@@ -46,9 +86,6 @@ pub const Op = union(enum) {
     // logic/math
     add: Binary,
     sub: Binary,
-
-    // comparisons
-    cmp: [2]Register,
 
     /// emits bytecode and linkable symbols for this op
     fn compile(op: Op, e: *Encoder) Allocator.Error!void {
@@ -88,6 +125,39 @@ pub const Op = union(enum) {
                     },
                 });
             },
+            .jump => |label| {
+                const reg: Register = .rax;
+                try e.movLabel(reg, label);
+                try e.encode(.{
+                    .opcode = &.{0xFF},
+                    .modrm = x86.ModRm{
+                        .mod = 0b11,
+                        .reg_opcode = 4,
+                        .rm = @intFromEnum(reg),
+                    },
+                });
+            },
+            .cmp => |cmp| try e.encode(.{
+                .prefix = x86.Prefix.REX_W,
+                .opcode = &.{0x3B},
+                .modrm = x86.ModRm{
+                    .mod = 0b11,
+                    .reg_opcode = @intFromEnum(cmp.lhs),
+                    .rm = @intFromEnum(cmp.rhs),
+                },
+            }),
+            .jump_if => |jump_if| {
+                // rel8 size of absolute jump instruction (movabs + jump)
+                const offset: i8 = 12;
+                // short conditional jump over $offset if inverse of condition
+                // is true
+                const cond_code: u8 = @intFromEnum(jump_if.cond.inverse());
+                try e.encode(.{
+                    .opcode = &.{0x70 + cond_code},
+                    .immediate = std.mem.asBytes(&offset),
+                });
+                try compile(.{ .jump = jump_if.label }, e);
+            },
 
             .constant => |constant| {
                 std.debug.assert(constant.bytes.len == 8);
@@ -98,7 +168,6 @@ pub const Op = union(enum) {
                     .immediate = constant.bytes,
                 });
             },
-
             .push => |reg| try e.encode(.{
                 .opcode = &.{0x50},
                 .opcode_reg = reg,
@@ -128,16 +197,6 @@ pub const Op = union(enum) {
                     .mod = 0b11,
                     .reg_opcode = @intFromEnum(bin.dst),
                     .rm = @intFromEnum(bin.src),
-                },
-            }),
-
-            .cmp => |cmp| try e.encode(.{
-                .prefix = x86.Prefix.REX_W,
-                .opcode = &.{0x3B},
-                .modrm = x86.ModRm{
-                    .mod = 0b11,
-                    .reg_opcode = @intFromEnum(cmp[0]),
-                    .rm = @intFromEnum(cmp[1]),
                 },
             }),
         }
