@@ -27,22 +27,53 @@ pub const Op = union(enum) {
     };
 
     nop,
+
+    // control flow
+    /// enter stack frame and reserve provided stack size
+    enter: u32,
+    /// leave stack frame
+    leave,
     ret,
     syscall,
     call: Label,
-    constant: Constant,
 
+    // value twiddling
+    constant: Constant,
     push: Register,
     pop: Register,
     mov: Binary,
 
+    // logic/math
     add: Binary,
     sub: Binary,
+
+    // comparisons
+    cmp: [2]Register,
 
     /// emits bytecode and linkable symbols for this op
     fn compile(op: Op, e: *Encoder) Allocator.Error!void {
         switch (op) {
             .nop => try e.encode(.{ .opcode = &.{0x90} }),
+
+            .enter => |frame_size| {
+                try compile(.{ .push = .rbp }, e);
+                try compile(.{ .mov = .{ .src = .rsp, .dst = .rbp } }, e);
+
+                if (frame_size > 0) {
+                    // sub $frame_size, %rsp
+                    try e.encode(.{
+                        .prefix = x86.Prefix.REX_W,
+                        .opcode = &.{0x81},
+                        .modrm = x86.ModRm{
+                            .mod = 0b11,
+                            .reg_opcode = 5,
+                            .rm = @intFromEnum(Register.rsp),
+                        },
+                        .immediate = std.mem.asBytes(&frame_size),
+                    });
+                }
+            },
+            .leave => try e.encode(.{ .opcode = &.{0xC9} }),
             .ret => try e.encode(.{ .opcode = &.{0xC3} }),
             .syscall => try e.encode(.{ .opcode = &.{0x0F, 0x05} }),
             .call => |label| {
@@ -57,12 +88,16 @@ pub const Op = union(enum) {
                     },
                 });
             },
-            .constant => |constant| try e.encode(.{
-                .prefix = x86.Prefix.REX_W,
-                .opcode = &.{0xB8},
-                .opcode_reg = constant.dst,
-                .immediate = constant.bytes,
-            }),
+
+            .constant => |constant| {
+                std.debug.assert(constant.bytes.len == 8);
+                try e.encode(.{
+                    .prefix = x86.Prefix.REX_W,
+                    .opcode = &.{0xB8},
+                    .opcode_reg = constant.dst,
+                    .immediate = constant.bytes,
+                });
+            },
 
             .push => |reg| try e.encode(.{
                 .opcode = &.{0x50},
@@ -93,6 +128,16 @@ pub const Op = union(enum) {
                     .mod = 0b11,
                     .reg_opcode = @intFromEnum(bin.dst),
                     .rm = @intFromEnum(bin.src),
+                },
+            }),
+
+            .cmp => |cmp| try e.encode(.{
+                .prefix = x86.Prefix.REX_W,
+                .opcode = &.{0x3B},
+                .modrm = x86.ModRm{
+                    .mod = 0b11,
+                    .reg_opcode = @intFromEnum(cmp[0]),
+                    .rm = @intFromEnum(cmp[1]),
                 },
             }),
         }
@@ -348,6 +393,11 @@ pub fn builder(self: *Jit) Builder {
 /// retrieve a compiled function
 pub fn get(self: *const Jit, label: Label, comptime T: type) *const T {
     std.debug.assert(@typeInfo(T) == .Fn);
-    const func = self.functions.get(label).?;
+    const func = self.functions.get(label) orelse {
+        std.debug.panic(
+            "{} is not the label of a compiled jit function.",
+            .{label},
+        );
+    };
     return @ptrCast(func.mem.ptr);
 }

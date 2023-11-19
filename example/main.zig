@@ -15,14 +15,16 @@ pub fn main() !void {
 
     const fun_builder = try builder.block();
     const fun_label = fun_builder.label;
-    try fun_builder.enterSysV();
+
+    try fun_builder.op(.{ .enter = 16 });
     try fun_builder.op(.{ .mov = .{ .src = .rdi, .dst = .rax } });
     try fun_builder.op(.{ .add = .{ .src = .rsi, .dst = .rax } });
     try fun_builder.op(.{
         .constant = .{ .bytes = std.mem.asBytes(&@as(u64, 420)), .dst = .rsi },
     });
     try fun_builder.op(.{ .add = .{ .src = .rsi, .dst = .rax } });
-    try fun_builder.exitSysV();
+    try fun_builder.op(.leave);
+    try fun_builder.op(.ret);
 
     try builder.build();
 
