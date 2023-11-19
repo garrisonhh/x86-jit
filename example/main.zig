@@ -55,7 +55,12 @@ pub fn main() !void {
     // run function
     const fib = jit.get(fun_label, fn(u64) callconv(.SysV) u64);
 
+    var bw = std.io.bufferedWriter(std.io.getStdErr().writer());
+    const writer = bw.writer();
+
     for (0..20) |n| {
-        std.debug.print("fib({}) = {}\n", .{n, fib(n)});
+        try writer.print("fib({}) = {}\n", .{n, fib(n)});
     }
+
+    try bw.flush();
 }
