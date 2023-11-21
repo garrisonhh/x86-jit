@@ -16,8 +16,7 @@ pub const Op = union(enum) {
     const max_encoded_len = 15;
 
     pub const Constant = struct {
-        /// must be 8 bytes
-        bytes: []const u8,
+        value: u64,
         dst: Register,
     };
 
@@ -31,21 +30,36 @@ pub const Op = union(enum) {
         rhs: Register,
     };
 
-    /// numbers are associated with Jcc instruction opcodes, you can use these
-    /// in the opcode_reg encoded field with 0x70 opcode for short jump and
-    /// 0x0F80 opcode for long jump
     pub const Condition = enum(u4) {
-        z = 0x4,
-        nz = 0x5,
-        gt = 0xF,
-        lt = 0xC,
-        ge = 0xD,
-        le = 0xE,
+        z,
+        nz,
+        eq,
+        ne,
+        gt,
+        lt,
+        ge,
+        le,
+
+        /// numbers are associated with Jcc instruction opcodes, you can use
+        /// these in the opcode_reg encoded field with 0x70 opcode for short
+        /// jump and 0x0F80 opcode for long jump
+        fn code(cond: Condition) u4 {
+            return switch (cond) {
+                .z, .eq => 0x4,
+                .nz, .ne => 0x5,
+                .gt => 0xF,
+                .lt => 0xC,
+                .ge => 0xD,
+                .le => 0xE,
+            };
+        }
 
         fn inverse(cond: Condition) Condition {
             return switch (cond) {
                 .z => .nz,
                 .nz => .z,
+                .eq => .ne,
+                .ne => .eq,
                 .gt => .le,
                 .lt => .ge,
                 .le => .gt,
@@ -72,9 +86,9 @@ pub const Op = union(enum) {
     call: Label,
     /// clobbers rax
     jump: Label,
-    /// sets flags
     cmp: Cmp,
-    /// uses flags set by cmp to determine whether to jump
+    /// uses flags set by cmp or other instructions to determine whether to jump
+    /// clobbers rax
     jump_if: JumpIf,
 
     // value twiddling
@@ -151,7 +165,7 @@ pub const Op = union(enum) {
                 const offset: i8 = 12;
                 // short conditional jump over $offset if inverse of condition
                 // is true
-                const cond_code: u8 = @intFromEnum(jump_if.cond.inverse());
+                const cond_code: u8 = jump_if.cond.inverse().code();
                 try e.encode(.{
                     .opcode = &.{0x70 + cond_code},
                     .immediate = std.mem.asBytes(&offset),
@@ -160,12 +174,11 @@ pub const Op = union(enum) {
             },
 
             .constant => |constant| {
-                std.debug.assert(constant.bytes.len == 8);
                 try e.encode(.{
                     .prefix = x86.Prefix.REX_W,
                     .opcode = &.{0xB8},
                     .opcode_reg = constant.dst,
-                    .immediate = constant.bytes,
+                    .immediate = std.mem.asBytes(&constant.value),
                 });
             },
             .push => |reg| try e.encode(.{

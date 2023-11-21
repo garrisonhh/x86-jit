@@ -19,12 +19,7 @@ pub fn main() !void {
     const base_case = try builder.block();
 
     try fun_builder.op(.{ .enter = 0 });
-    try fun_builder.op(.{
-        .constant = .{
-            .bytes = std.mem.asBytes(&@as(u64, 1)),
-            .dst = .rbx,
-        }
-    });
+    try fun_builder.op(.{ .constant = .{ .value = 1, .dst = .rbx } });
 
     // if n <= 1 then do recursive call, otherwise return 1 (base case)
     try fun_builder.op(.{ .cmp = .{ .lhs = .rdi, .rhs = .rbx } });
