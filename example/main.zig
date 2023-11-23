@@ -1,4 +1,6 @@
 const std = @import("std");
+const stderr = std.io.getStdErr().writer();
+const blox = @import("blox");
 const Jit = @import("x86-jit").Jit;
 
 pub fn main() !void {
@@ -52,10 +54,17 @@ pub fn main() !void {
 
     try builder.build();
 
+    // dump
+    var mason = blox.Mason.init(ally);
+    defer mason.deinit();
+
+    const rendered = try builder.render(&mason);
+    try mason.write(rendered, stderr, .{});
+
     // run function
     const fib = jit.get(fun_label, fn(u64) callconv(.SysV) u64);
 
-    var bw = std.io.bufferedWriter(std.io.getStdErr().writer());
+    var bw = std.io.bufferedWriter(stderr);
     const writer = bw.writer();
 
     for (0..20) |n| {

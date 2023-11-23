@@ -6,5 +6,9 @@
             .url = "https://github.com/garrisonhh/zighh/tarball/51b61ad07964f8c74a62dbb6c3d341ac74dc3417",
             .hash = "122085a8f99dd1a61a7eb373c40d3fa7fd7f6b0a69fb94adc51f21888ff152f27a81",
         },
+        .blox = .{
+            .url = "https://github.com/garrisonhh/blox/tarball/2b72352c4c1520320e9f97c55dd254d2c8ac3d85",
+            .hash = "1220b0f9e263a71b08b4ea173a7b34ae7e53ae51dd143243bf272fa463e036221d11",
+        },
     },
 }

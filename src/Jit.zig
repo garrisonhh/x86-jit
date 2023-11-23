@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 const com = @import("common");
 const JitMemory = @import("JitMemory.zig");
 const x86 = @import("x86.zig");
+const rendering = @import("rendering.zig");
 
 const Jit = @This();
 
@@ -86,6 +87,8 @@ pub const Op = union(enum) {
     // logic/math
     add: Binary,
     sub: Binary,
+
+    pub const render = rendering.renderOp;
 
     /// emits bytecode and linkable symbols for this op
     fn compile(op: Op, e: *Encoder) Allocator.Error!void {
@@ -205,22 +208,16 @@ pub const Op = union(enum) {
 
 /// encodes ops into an object
 const Encoder = struct {
-    jit: *Jit,
+    arena_ally: Allocator,
     code: std.ArrayListUnmanaged(u8) = .{},
     symbols: std.ArrayListUnmanaged(Object.Symbol) = .{},
-
-    fn deinit(self: *Encoder) void {
-        const ally = self.jit.ally;
-        self.code.deinit(ally);
-        self.symbols.deinit(ally);
-    }
 
     /// add a raw encoded op
     fn encode(self: *Encoder, encoded: x86.Encoded) Allocator.Error!void {
         var buf: [Op.max_encoded_len]u8 = undefined;
         const code = encoded.write(&buf);
 
-        try self.code.appendSlice(self.jit.ally, code);
+        try self.code.appendSlice(self.arena_ally, code);
     }
 
     /// encode moving a label to a register by storing the label as a symbol
@@ -240,18 +237,17 @@ const Encoder = struct {
 
         // immediate bytes are added at the end
         const symbol_index = self.code.items.len - placeholder.len;
-        try self.symbols.append(self.jit.ally, Object.Symbol{
+        try self.symbols.append(self.arena_ally, Object.Symbol{
             .label = label,
             .index = symbol_index,
         });
     }
 
-    fn build(self: *Encoder) Allocator.Error!Object {
-        return Object.init(
-            self.jit,
-            try self.symbols.toOwnedSlice(self.jit.ally),
-            try self.code.toOwnedSlice(self.jit.ally),
-        );
+    fn build(self: *Encoder, jit: *Jit) Allocator.Error!Object {
+        const symbols = try self.symbols.toOwnedSlice(self.arena_ally);
+        const code = try self.code.toOwnedSlice(self.arena_ally);
+
+        return Object.init(jit, symbols, code);
     }
 };
 
@@ -264,7 +260,6 @@ const Object = struct {
         index: usize,
     };
 
-    jit: *Jit,
     /// symbols needed for linking
     symbols: []const Symbol,
     /// unlinked code
@@ -272,7 +267,6 @@ const Object = struct {
     /// actual executable memory (must be allocated on init for linking)
     executable: []u8,
 
-    /// takes ownership of symbols and code
     fn init(
         jit: *Jit,
         symbols: []const Symbol,
@@ -285,17 +279,10 @@ const Object = struct {
         );
 
         return Object{
-            .jit = jit,
             .symbols = symbols,
             .code = code,
             .executable = executable,
         };
-    }
-
-    fn deinit(self: *Object) void {
-        const ally = self.jit.ally;
-        ally.free(self.symbols);
-        ally.free(self.code);
     }
 
     const LinkMap = std.AutoHashMapUnmanaged(Label, Object);
@@ -306,7 +293,7 @@ const Object = struct {
         map: *const LinkMap,
         label: Label,
     ) LinkError!*const anyopaque {
-        if (jit.functions.get(label)) |func| {
+        if (jit.functions.getOpt(label)) |func| {
             return func.mem.ptr;
         }
 
@@ -319,17 +306,22 @@ const Object = struct {
 
     fn linkSymbol(
         self: *Object,
+        jit: *const Jit,
         map: *const LinkMap,
         symbol: Symbol,
     ) LinkError!void {
-        const symbol_ptr = try findLabel(self.jit, map, symbol.label);
+        const symbol_ptr = try findLabel(jit, map, symbol.label);
         const symbol_bytes: *const [8]u8 = @ptrCast(&symbol_ptr);
         @memcpy(self.code[symbol.index..symbol.index + 8], symbol_bytes);
     }
 
-    fn link(self: *Object, map: *const LinkMap) LinkError!Function {
+    fn link(
+        self: *Object,
+        jit: *const Jit,
+        map: *const LinkMap,
+    ) LinkError!Function {
         for (self.symbols) |symbol| {
-            try self.linkSymbol(map, symbol);
+            try self.linkSymbol(jit, map, symbol);
         }
 
         JitMemory.copy(self.executable, self.code);
@@ -340,25 +332,24 @@ const Object = struct {
 
 /// builder for a jit block
 pub const BlockBuilder = struct {
-    jit: *Jit,
+    /// arena from builder
+    arena_ally: Allocator,
     label: Label,
     ops: std.ArrayListUnmanaged(Op) = .{},
 
-    fn deinit(self: *BlockBuilder) void {
-        self.ops.deinit(self.jit.ally);
-    }
+    pub const render = rendering.renderBlock;
 
-    fn compile(self: *BlockBuilder) Allocator.Error!Object {
-        var encoder = Encoder{ .jit = self.jit };
-        defer encoder.deinit();
+    fn compile(self: *const BlockBuilder, jit: *Jit) Allocator.Error!Object {
+        var encoder = Encoder{ .arena_ally = self.arena_ally };
+        for (self.ops.items) |o| {
+            try o.compile(&encoder);
+        }
 
-        for (self.ops.items) |o| try o.compile(&encoder);
-
-        return try encoder.build();
+        return try encoder.build(jit);
     }
 
     pub fn op(self: *BlockBuilder, o: Op) Allocator.Error!void {
-        try self.ops.append(self.jit.ally, o);
+        try self.ops.append(self.arena_ally, o);
     }
 
     /// preserve stack for sysv function
@@ -376,54 +367,66 @@ pub const BlockBuilder = struct {
 
 pub const Builder = struct {
     jit: *Jit,
-    block_builders: com.RefList(Label, BlockBuilder) = .{},
+    /// stores all in-progress memory
+    arena: std.heap.ArenaAllocator,
+    block_builders: std.AutoHashMapUnmanaged(Label, *const BlockBuilder) = .{},
+
+    pub const render = rendering.renderBuilder;
+
+    fn init(jit: *Jit) Builder {
+        return .{
+            .jit = jit,
+            .arena = std.heap.ArenaAllocator.init(jit.ally),
+        };
+    }
 
     pub fn deinit(self: *Builder) void {
-        var bbuilders = self.block_builders.iterator();
-        while (bbuilders.next()) |bbuilder| bbuilder.deinit();
-        self.block_builders.deinit(self.jit.ally);
+        self.arena.deinit();
     }
 
     pub fn block(self: *Builder) Allocator.Error!*BlockBuilder {
-        const label = try self.block_builders.new(self.jit.ally);
-        self.block_builders.set(label, BlockBuilder{
-            .jit = self.jit,
-            .label = label,
-        });
+        const label = try self.jit.functions.new(self.jit.ally);
 
-        return self.block_builders.get(label);
+        const arena_ally = self.arena.allocator();
+        const bb = try arena_ally.create(BlockBuilder);
+        bb.* = BlockBuilder{
+            .arena_ally = arena_ally,
+            .label = label,
+        };
+
+        try self.block_builders.put(arena_ally, label, bb);
+
+        return bb;
     }
 
     /// compile and link all of the blocks, and then add them to the jit
     pub fn build(self: *Builder) BuildError!void {
-        const ally = self.jit.ally;
+        const arena_ally = self.arena.allocator();
 
         // compile blocks to objects
         var objects = Object.LinkMap{};
-        defer {
-            var object_iter = objects.valueIterator();
-            while (object_iter.next()) |object| object.deinit();
-            objects.deinit(ally);
-        }
-
-        var bbuilders = self.block_builders.iterator();
-        while (bbuilders.next()) |bbuilder| {
-            const object = try bbuilder.compile();
-            try objects.put(ally, bbuilder.label, object);
+        var bbuilders = self.block_builders.valueIterator();
+        while (bbuilders.next()) |bb_ptr| {
+            const bbuilder = bb_ptr.*;
+            const object = try bbuilder.compile(self.jit);
+            try objects.put(arena_ally, bbuilder.label, object);
         }
 
         // link objects and add to jit
         var object_iter = objects.iterator();
         while (object_iter.next()) |entry| {
-            const func = try entry.value_ptr.link(&objects);
-            try self.jit.functions.put(ally, entry.key_ptr.*, func);
+            const label = entry.key_ptr.*;
+            const object = entry.value_ptr;
+
+            const func = try object.link(self.jit, &objects);
+            self.jit.functions.set(label, func);
         }
     }
 };
 
 /// fully jit compiled result
 pub const Function = struct {
-    const Map = std.AutoHashMapUnmanaged(Label, Function);
+    const Map = com.RefList(Label, Function);
 
     mem: []const u8,
 };
@@ -446,13 +449,13 @@ pub fn deinit(self: *Jit) void {
 /// you can use multiple builders in sequence, but two builder instances at once
 /// will not be able to see each others blocks
 pub fn builder(self: *Jit) Builder {
-    return .{ .jit = self };
+    return Builder.init(self);
 }
 
 /// retrieve a compiled function
 pub fn get(self: *const Jit, label: Label, comptime T: type) *const T {
     std.debug.assert(@typeInfo(T) == .Fn);
-    const func = self.functions.get(label) orelse {
+    const func = self.functions.getOpt(label) orelse {
         std.debug.panic(
             "{} is not the label of a compiled jit function.",
             .{label},
