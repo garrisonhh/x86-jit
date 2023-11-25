@@ -94,41 +94,17 @@ pub fn renderOp(op: Jit.Op, mason: *Mason) Error!Div {
             },
             Jit.Op.Mem => {
                 const size_tag = @tagName(data.size);
+                const str = try std.fmt.allocPrint(ally, "${d}", .{data.offset});
+                defer ally.free(str);
 
                 try divs.appendSlice(&.{
                     try mason.newPre(size_tag, .{ .fg = theme.opcode }),
+                    space,
+                    try mason.newPre(str, .{ .fg = theme.data }),
                     space,
                     try renderRegister(mason, data.src),
                     comma,
                     try renderRegister(mason, data.dst),
-                });
-            },
-            Jit.Op.StackLoad => {
-                const size_tag = @tagName(data.size);
-                const offset_str =
-                    try std.fmt.allocPrint(ally, "from {d} to", .{data.offset});
-                defer ally.free(offset_str);
-
-                try divs.appendSlice(&.{
-                    try mason.newPre(size_tag, .{ .fg = theme.opcode }),
-                    space,
-                    try mason.newPre(offset_str, .{}),
-                    space,
-                    try renderRegister(mason, data.dst),
-                });
-            },
-            Jit.Op.StackStore => {
-                const size_tag = @tagName(data.size);
-                const offset_str =
-                    try std.fmt.allocPrint(ally, "to {d} from", .{data.offset});
-                defer ally.free(offset_str);
-
-                try divs.appendSlice(&.{
-                    try mason.newPre(size_tag, .{ .fg = theme.opcode }),
-                    space,
-                    try mason.newPre(offset_str, .{}),
-                    space,
-                    try renderRegister(mason, data.src),
                 });
             },
 

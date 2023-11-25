@@ -35,23 +35,43 @@ pub fn main() !void {
     // n' = n - 1
     try fun_builder.op(.{ .sub = .{ .src = .rbx, .dst = .rdi } });
     try fun_builder.op(.{
-        .stack_store = .{ .size = .qword, .offset = -8, .src = .rdi },
+        .store = .{
+            .size = .qword,
+            .offset = -8,
+            .src = .rdi,
+            .dst = .rbp,
+        },
     });
 
     // res = fib(n')
     try fun_builder.op(.{ .call = fun_builder.label });
     try fun_builder.op(.{
-        .stack_store = .{ .size = .qword, .offset = -16, .src = .rax },
+        .store = .{
+            .size = .qword,
+            .offset = -16,
+            .src = .rax,
+            .dst = .rbp,
+        },
     });
 
     // return res + fib(n' - 1)
     try fun_builder.op(.{
-        .stack_load = .{ .size = .qword, .offset = -8, .dst = .rdi },
+        .load = .{
+            .size = .qword,
+            .offset = -8,
+            .src = .rbp,
+            .dst = .rdi,
+        },
     });
     try fun_builder.op(.{ .sub = .{ .src = .rbx, .dst = .rdi } });
     try fun_builder.op(.{ .call = fun_builder.label });
     try fun_builder.op(.{
-        .stack_load = .{ .size = .qword, .offset = -16, .dst = .rdx },
+        .load = .{
+            .size = .qword,
+            .offset = -16,
+            .src = .rbp,
+            .dst = .rdx,
+        },
     });
     try fun_builder.op(.{ .add = .{ .src = .rdx, .dst = .rax } });
     try fun_builder.op(.leave);
