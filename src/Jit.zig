@@ -60,16 +60,61 @@ pub const Op = union(enum) {
         label: Label,
     };
 
+    pub const Size = enum {
+        byte,
+        word,
+        dword,
+        qword,
+
+        pub fn into(sz: Size) usize  {
+            return switch (sz) {
+                .byte => 1,
+                .word => 2,
+                .dword => 4,
+                .qword => 8,
+            };
+        }
+
+        pub fn from(nbytes: usize) Size {
+            inline for (std.enums.values(Size)) |sz| {
+                if (nbytes == comptime sz.into()) {
+                    return sz;
+                }
+            }
+
+            std.debug.panic("invalid nbytes: {}", .{nbytes});
+        }
+    };
+
+    /// load or store
+    pub const Mem = struct {
+        size: Size,
+        src: Register,
+        dst: Register,
+    };
+
+    pub const StackLoad = struct {
+        size: Size,
+        offset: i32,
+        dst: Register,
+    };
+
+    pub const StackStore = struct {
+        size: Size,
+        offset: i32,
+        src: Register,
+    };
+
     nop,
 
     // control flow
     /// enter stack frame and reserve provided stack size
-    enter: u32,
+    enter: u31,
     /// leave stack frame
     leave,
     ret,
     syscall,
-    /// clobbers rax
+    /// places return value in rax
     call: Label,
     /// clobbers rax
     jump: Label,
@@ -83,6 +128,12 @@ pub const Op = union(enum) {
     push: Register,
     pop: Register,
     mov: Binary,
+    load: Mem,
+    store: Mem,
+    /// load `size` bytes from `-offset(%rbp)` into `%dst`
+    stack_load: StackLoad,
+    /// store `size` bytes from `%src` into `-offset(%rbp)`
+    stack_store: StackStore,
 
     // logic/math
     add: Binary,
@@ -187,6 +238,28 @@ pub const Op = union(enum) {
                     .reg_opcode = @intFromEnum(mov.src),
                     .rm = @intFromEnum(mov.dst),
                 },
+            }),
+            .load => @panic("TODO"),
+            .store => @panic("TODO"),
+            .stack_load => |stload| try e.encode(.{
+                .prefix = x86.Prefix.REX_W,
+                .opcode = &.{0x8b},
+                .modrm = x86.ModRm{
+                    .mod = 0b10,
+                    .reg_opcode = @intFromEnum(stload.dst),
+                    .rm = @intFromEnum(Register.rbp),
+                },
+                .displacement = std.mem.asBytes(&stload.offset),
+            }),
+            .stack_store => |ststore| try e.encode(.{
+                .prefix = x86.Prefix.REX_W,
+                .opcode = &.{0x89},
+                .modrm = x86.ModRm{
+                    .mod = 0b10,
+                    .reg_opcode = @intFromEnum(ststore.src),
+                    .rm = @intFromEnum(Register.rbp),
+                },
+                .displacement = std.mem.asBytes(&ststore.offset),
             }),
 
             inline .add, .sub => |bin, opcode| try e.encode(.{

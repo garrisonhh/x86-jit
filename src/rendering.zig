@@ -31,6 +31,7 @@ fn renderLabel(mason: *Mason, label: Jit.Label) Error!Div {
 
 pub fn renderOp(op: Jit.Op, mason: *Mason) Error!Div {
     const comma = try mason.newPre(", ", .{});
+    const space = try mason.newSpacer(1, 1, .{});
 
     const ally = mason.ally;
     var divs = std.ArrayList(Div).init(ally);
@@ -45,7 +46,7 @@ pub fn renderOp(op: Jit.Op, mason: *Mason) Error!Div {
     switch (op) {
         inline else => |data| switch (@TypeOf(data)) {
             void => {},
-            u32 => {
+            u31 => {
                 const str = try std.fmt.allocPrint(ally, "${d}", .{data});
                 defer ally.free(str);
 
@@ -83,18 +84,55 @@ pub fn renderOp(op: Jit.Op, mason: *Mason) Error!Div {
                 });
             },
             Jit.Op.JumpIf => {
-                const tag = @tagName(data.cond);
-                const str = try std.fmt.allocPrint(ally, "{s}", .{tag});
-                defer ally.free(str);
+                const cond_tag = @tagName(data.cond);
 
                 try divs.appendSlice(&.{
-                    try mason.newPre(str, .{ .fg = theme.opcode }),
-                    try mason.newSpacer(1, 1, .{}),
+                    try mason.newPre(cond_tag, .{ .fg = theme.opcode }),
+                    space,
                     try renderLabel(mason, data.label),
                 });
             },
+            Jit.Op.Mem => {
+                const size_tag = @tagName(data.size);
 
-            else => unreachable,
+                try divs.appendSlice(&.{
+                    try mason.newPre(size_tag, .{ .fg = theme.opcode }),
+                    space,
+                    try renderRegister(mason, data.src),
+                    comma,
+                    try renderRegister(mason, data.dst),
+                });
+            },
+            Jit.Op.StackLoad => {
+                const size_tag = @tagName(data.size);
+                const offset_str =
+                    try std.fmt.allocPrint(ally, "from {d} to", .{data.offset});
+                defer ally.free(offset_str);
+
+                try divs.appendSlice(&.{
+                    try mason.newPre(size_tag, .{ .fg = theme.opcode }),
+                    space,
+                    try mason.newPre(offset_str, .{}),
+                    space,
+                    try renderRegister(mason, data.dst),
+                });
+            },
+            Jit.Op.StackStore => {
+                const size_tag = @tagName(data.size);
+                const offset_str =
+                    try std.fmt.allocPrint(ally, "to {d} from", .{data.offset});
+                defer ally.free(offset_str);
+
+                try divs.appendSlice(&.{
+                    try mason.newPre(size_tag, .{ .fg = theme.opcode }),
+                    space,
+                    try mason.newPre(offset_str, .{}),
+                    space,
+                    try renderRegister(mason, data.src),
+                });
+            },
+
+            else => |T| @panic("unknown op data type: " ++ @typeName(T)),
         }
     }
 

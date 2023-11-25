@@ -16,11 +16,9 @@ pub fn main() !void {
     defer builder.deinit();
 
     const fun_builder = try builder.block();
-    const fun_label = fun_builder.label;
-
     const base_case = try builder.block();
 
-    try fun_builder.op(.{ .enter = 0 });
+    try fun_builder.op(.{ .enter = 16 });
     try fun_builder.op(.{
         .constant = .{
             .bytes = std.mem.asBytes(&@as(u64, 1)),
@@ -34,15 +32,27 @@ pub fn main() !void {
         .jump_if = .{ .cond = .le, .label = base_case.label },
     });
 
-    // return fib(n - 1) + fib(n - 2)
+    // n' = n - 1
     try fun_builder.op(.{ .sub = .{ .src = .rbx, .dst = .rdi } });
-    try fun_builder.op(.{ .push = .rdi });
+    try fun_builder.op(.{
+        .stack_store = .{ .size = .qword, .offset = -8, .src = .rdi },
+    });
+
+    // res = fib(n')
     try fun_builder.op(.{ .call = fun_builder.label });
-    try fun_builder.op(.{ .pop = .rdi });
-    try fun_builder.op(.{ .push = .rax });
+    try fun_builder.op(.{
+        .stack_store = .{ .size = .qword, .offset = -16, .src = .rax },
+    });
+
+    // return res + fib(n' - 1)
+    try fun_builder.op(.{
+        .stack_load = .{ .size = .qword, .offset = -8, .dst = .rdi },
+    });
     try fun_builder.op(.{ .sub = .{ .src = .rbx, .dst = .rdi } });
     try fun_builder.op(.{ .call = fun_builder.label });
-    try fun_builder.op(.{ .pop = .rdx });
+    try fun_builder.op(.{
+        .stack_load = .{ .size = .qword, .offset = -16, .dst = .rdx },
+    });
     try fun_builder.op(.{ .add = .{ .src = .rdx, .dst = .rax } });
     try fun_builder.op(.leave);
     try fun_builder.op(.ret);
@@ -52,8 +62,6 @@ pub fn main() !void {
     try base_case.op(.leave);
     try base_case.op(.ret);
 
-    try builder.build();
-
     // dump
     var mason = blox.Mason.init(ally);
     defer mason.deinit();
@@ -61,14 +69,17 @@ pub fn main() !void {
     const rendered = try builder.render(&mason);
     try mason.write(rendered, stderr, .{});
 
-    // run function
-    const fib = jit.get(fun_label, fn(u64) callconv(.SysV) u64);
+    // build and run function
+    try builder.build();
+
+    const fib = jit.get(fun_builder.label, fn(u64) callconv(.SysV) u64);
 
     var bw = std.io.bufferedWriter(stderr);
     const writer = bw.writer();
 
     for (0..20) |n| {
-        try writer.print("fib({}) = {}\n", .{n, fib(n)});
+        const res = fib(n);
+        try writer.print("fib({}) = {}\n", .{n, res});
     }
 
     try bw.flush();
