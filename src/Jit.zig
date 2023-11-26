@@ -75,14 +75,10 @@ pub const Op = union(enum) {
             };
         }
 
-        pub fn from(nbytes: usize) Size {
-            inline for (std.enums.values(Size)) |sz| {
-                if (nbytes == comptime sz.into()) {
-                    return sz;
-                }
-            }
-
-            std.debug.panic("invalid nbytes: {}", .{nbytes});
+        pub fn from(nbytes: usize) ?Size {
+            return inline for (comptime std.enums.values(Size)) |sz| {
+                if (nbytes == comptime sz.into()) break sz;
+            } else null;
         }
     };
 
