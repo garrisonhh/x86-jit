@@ -64,6 +64,7 @@ pub const Prefix = union(enum) {
     pub const REX_W = Prefix{ .rex = Rex{ .w = 1 } };
 
     rex: Rex,
+    override16bit,
 };
 
 pub const Register = enum(u3) {
@@ -108,6 +109,7 @@ pub const Encoded = struct {
         if (self.prefix) |prefix| {
             switch (prefix) {
                 .rex => |rex| bb.write(rex.byte()),
+                .override16bit => bb.write(0x66),
             }
         }
 

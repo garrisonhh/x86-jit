@@ -223,8 +223,15 @@ pub const Op = union(enum) {
                 },
             }),
             .load => |load| try e.encode(.{
-                .prefix = x86.Prefix.REX_W,
-                .opcode = &.{0x8b},
+                .prefix = switch (load.size) {
+                    .qword => x86.Prefix.REX_W,
+                    .word => .override16bit,
+                    .dword, .byte => null,
+                },
+                .opcode = switch (load.size) {
+                    .byte => &.{0x8a},
+                    else => &.{0x8b},
+                },
                 .modrm = x86.ModRm{
                     .mod = 0b10,
                     .reg_opcode = @intFromEnum(load.dst),
@@ -233,8 +240,15 @@ pub const Op = union(enum) {
                 .displacement = std.mem.asBytes(&load.offset),
             }),
             .store => |store| try e.encode(.{
-                .prefix = x86.Prefix.REX_W,
-                .opcode = &.{0x89},
+                .prefix = switch (store.size) {
+                    .qword => x86.Prefix.REX_W,
+                    .word => .override16bit,
+                    .dword, .byte => null,
+                },
+                .opcode = switch (store.size) {
+                    .byte => &.{0x88},
+                    else => &.{0x89},
+                },
                 .modrm = x86.ModRm{
                     .mod = 0b10,
                     .reg_opcode = @intFromEnum(store.src),
