@@ -405,18 +405,6 @@ pub const BlockBuilder = struct {
     pub fn op(self: *BlockBuilder, o: Op) Allocator.Error!void {
         try self.ops.append(self.arena_ally, o);
     }
-
-    /// preserve stack for sysv function
-    pub fn enterSysV(self: *BlockBuilder) Allocator.Error!void {
-        try self.op(.{ .push = .rbp });
-        try self.op(.{ .mov = .{ .src = .rsp, .dst = .rbp } });
-    }
-
-    /// restore stack and return from sysv function
-    pub fn exitSysV(self: *BlockBuilder) Allocator.Error!void {
-        try self.op(.{ .pop = .rbp });
-        try self.op(.ret);
-    }
 };
 
 pub const Builder = struct {
