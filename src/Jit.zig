@@ -27,7 +27,7 @@ pub const Op = union(enum) {
         dst: Register,
     };
 
-    pub const Cmp = struct {
+    pub const PureBinary = struct {
         lhs: Register,
         rhs: Register,
     };
@@ -104,7 +104,9 @@ pub const Op = union(enum) {
     /// clobbers rax
     jump: Label,
     /// sets flags
-    cmp: Cmp,
+    cmp: PureBinary,
+    /// sets flags
+    @"test": PureBinary,
     /// uses flags set by cmp to determine whether to jump
     jump_if: JumpIf,
 
@@ -174,13 +176,17 @@ pub const Op = union(enum) {
                     },
                 });
             },
-            .cmp => |cmp| try e.encode(.{
+            inline .@"test", .cmp => |cmp, opcode| try e.encode(.{
                 .prefix = x86.Prefix.REX_W,
-                .opcode = &.{0x3B},
+                .opcode = switch (opcode) {
+                    .cmp => &.{0x38},
+                    .@"test" => &.{0x85},
+                    else => unreachable,
+                },
                 .modrm = x86.ModRm{
                     .mod = 0b11,
-                    .reg_opcode = @intFromEnum(cmp.lhs),
-                    .rm = @intFromEnum(cmp.rhs),
+                    .reg_opcode = @intFromEnum(cmp.rhs),
+                    .rm = @intFromEnum(cmp.lhs),
                 },
             }),
             .jump_if => |jump_if| {

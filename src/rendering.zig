@@ -76,7 +76,7 @@ pub fn renderOp(op: Jit.Op, mason: *Mason) Error!Div {
                     try renderRegister(mason, data.dst),
                 });
             },
-            Jit.Op.Cmp => {
+            Jit.Op.PureBinary => {
                 try divs.appendSlice(&.{
                     try renderRegister(mason, data.lhs),
                     comma,
