@@ -8,12 +8,14 @@ pub fn build(b: *std.Build) !void {
     const optimize = b.standardOptimizeOption(.{});
 
     const common = b.dependency("zighh", .{}).module("common");
+    const blox = b.dependency("blox", .{}).module("blox");
 
     // module
     const mod = b.addModule(project_name, .{
         .source_file = .{ .path = "src/main.zig" },
         .dependencies = &.{
             .{ .name = "common", .module = common },
+            .{ .name = "blox", .module = blox },
         },
     });
 
@@ -25,6 +27,7 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
+    example.addModule("blox", blox);
     example.addModule(project_name, mod);
 
     const install = b.addInstallArtifact(example, .{});
