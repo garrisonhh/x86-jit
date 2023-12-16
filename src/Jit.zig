@@ -100,6 +100,7 @@ pub const Op = union(enum) {
     // logic/math
     add: Binary,
     sub: Binary,
+    neg: Register,
 
     /// emits bytecode and linkable symbols for this op
     fn compile(op: Op, e: *Encoder) Allocator.Error!void {
@@ -210,6 +211,15 @@ pub const Op = union(enum) {
                     .mod = 0b11,
                     .reg_opcode = @intFromEnum(bin.dst),
                     .rm = @intFromEnum(bin.src),
+                },
+            }),
+            .neg => |reg| try e.encode(.{
+                .prefix = x86.Prefix.REX_W,
+                .opcode = &.{0xF7},
+                .modrm = x86.ModRm{
+                    .mod = 0b11,
+                    .reg_opcode = 3,
+                    .rm = @intFromEnum(reg),
                 },
             }),
         }
